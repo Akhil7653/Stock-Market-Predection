@@ -20,9 +20,11 @@ from datetime import datetime, timedelta
 import json
 
 # Import project modules
-from data_loader import fetch_stock_data, get_stock_info, get_exchange_rate
+from data_loader import fetch_stock_data, get_stock_info, get_exchange_rate, get_fuel_prices
 from indicators import add_all_indicators
 from model import prepare_features, train_model, get_feature_importance, forecast_future, generate_suggestion
+from streamlit_autorefresh import st_autorefresh
+import time
 from utils import (
     plot_candlestick,
     plot_ohlc_lines,
@@ -84,28 +86,35 @@ st.markdown("""
 
     /* ── Metric cards ───────────────────────────────── */
     .metric-card {
-        background: linear-gradient(135deg, #1A1D29 0%, #252836 100%);
-        border: 1px solid #2A2D3A;
-        border-radius: 16px;
-        padding: 20px 24px;
+        background: rgba(26, 29, 41, 0.6);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 20px;
+        padding: 24px;
         text-align: center;
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
     }
     .metric-card:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 8px 30px rgba(108, 99, 255, 0.15);
+        transform: translateY(-8px) scale(1.02);
+        background: rgba(37, 40, 54, 0.8);
+        box-shadow: 0 12px 40px rgba(108, 99, 255, 0.25);
+        border-color: rgba(108, 99, 255, 0.4);
     }
     .metric-value {
-        font-size: 1.8rem;
-        font-weight: 700;
-        color: #FAFAFA;
-        margin-bottom: 4px;
+        font-size: 2.2rem;
+        font-weight: 800;
+        background: linear-gradient(135deg, #FAFAFA 0%, #A0A0A0 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 8px;
     }
     .metric-label {
-        font-size: 0.85rem;
+        font-size: 0.9rem;
+        font-weight: 600;
         color: #888;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: 1.5px;
     }
 
     /* ── Suggestion card ────────────────────────────── */
@@ -215,6 +224,7 @@ with st.sidebar:
         st.session_state.run_dashboard = False
         st.rerun()
 
+    st.markdown("---")
     st.markdown("### ⚙️ Configuration")
     st.markdown("---")
 
@@ -239,9 +249,13 @@ with st.sidebar:
     target_currency = st.selectbox(
         "Select Currency",
         options=["INR", "USD", "EUR", "GBP", "JPY"],
-        index=0,
+        index=0,  # Default to INR
         help="All prices will be converted to this currency using live rates."
     )
+
+    # Live refresh toggle
+    st.markdown("**🔄 Live Updates**")
+    live_refresh = st.toggle("Auto-refresh (Home)", value=True, help="Automatically refresh home page data every 60 seconds.")
 
     # Quick-select from presets
     st.markdown("**Quick Select**")
@@ -350,8 +364,14 @@ if st.session_state.get('run_dashboard', False):
         df["Low"] *= conv_rate
         df["Close"] *= conv_rate
 
-    # ── Stock Info Cards ────────────────────────────────────────────────────
-    st.markdown(f"### 🏢 {stock_info.get('name', ticker)}")
+    # ── Stock Info Header ──────────────────────────────────────────────────
+    col_title, col_home = st.columns([4, 1])
+    with col_title:
+        st.markdown(f"### 🏢 {stock_info.get('name', ticker)}")
+    with col_home:
+        if st.button("⬅️ Back to Home", key="back_home_btn", use_container_width=True):
+            st.session_state.run_dashboard = False
+            st.rerun()
 
     info_cols = st.columns(5)
     info_items = [
@@ -610,58 +630,124 @@ if st.session_state.get('run_dashboard', False):
 
 else:
     # ── Enhanced Market Overview Landing Page ───────────────────────────────
-    st.markdown("### 🌍 Global Market Overview")
     
-    major_tickers = {
-        "NIFTY 50": "^NSEI",
-        "SENSEX": "^BSESN",
-        "GOLD": "GC=F",
-        "SILVER": "SI=F",
-        "CRUDE OIL": "CL=F"
-    }
+    # Auto-refresh logic (every 60s if toggled)
+    if live_refresh:
+        st_autorefresh(interval=60000, key="market_refresh")
+
+    st.markdown('<h2 style="text-align:center; color:#6C63FF; margin-bottom:30px;">🌍 Live Market Overview</h2>', unsafe_allow_html=True)
     
-    m_cols = st.columns(len(major_tickers))
-    for col, (name, t_code) in zip(m_cols, major_tickers.items()):
-        with col:
-            try:
-                m_data = fetch_stock_data(t_code, (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d'), datetime.now().strftime('%Y-%m-%d'))
-                # Convert if not already in target currency (yfinance commodities are USD)
-                m_info = get_stock_info(t_code)
-                m_rate = get_exchange_rate(m_info.get("currency", "USD"), target_currency)
-                m_sym = CURRENCY_SYMBOLS.get(target_currency, "")
-                
-                latest_p = m_data["Close"].iloc[-1] * m_rate
-                prev_p = m_data["Close"].iloc[-2] * m_rate
-                delta_p = ((latest_p - prev_p) / prev_p) * 100
-                
-                st.metric(label=name, value=f"{m_sym}{latest_p:,.2f}", delta=f"{delta_p:.2f}%")
-                # Small sparkline
-                st.sparkline(m_data["Close"].tail(7).values)
-            except:
-                st.error(f"Error loading {name}")
+    # Fetch data for major markers
+    with st.spinner("📡 Refreshing market data..."):
+        # We'll use a standardized city for fuel - user can change but we'll default to Mumbai/Delhi
+        fuel_data = get_fuel_prices("Mumbai")
+        
+        # Major tickers for indices and commodities
+        markers = {
+            "NIFTY 50": "^NSEI",
+            "SENSEX": "^BSESN",
+            "GOLD (10g)": "GC=F",
+            "SILVER (1kg)": "SI=F",
+        }
+        
+        # Get live USDINR rate for conversions
+        usdinr_rate = get_exchange_rate("USD", "INR")
+        curr_sym = CURRENCY_SYMBOLS.get(target_currency, "₹")
+        target_rate = get_exchange_rate("INR", target_currency) if target_currency != "INR" else 1.0
+
+        cols = st.columns(3)
+        
+        # Helper to process each marker
+        for i, (name, t_code) in enumerate(markers.items()):
+            with cols[i % 3]:
+                try:
+                    m_data = fetch_stock_data(t_code, (datetime.now() - timedelta(days=15)).strftime('%Y-%m-%d'), datetime.now().strftime('%Y-%m-%d'))
+                    latest_close = m_data["Close"].iloc[-1]
+                    prev_close = m_data["Close"].iloc[-2]
+                    
+                    # Special handling for Gold/Silver units and currency
+                    if "GOLD" in name:
+                        # GC=F is per ounce in USD. Convert to 10g in target currency.
+                        # 1 ounce = 31.1035g
+                        val = (latest_close / 31.1035) * 10 * usdinr_rate * target_rate
+                        p_val = (prev_close / 31.1035) * 10 * usdinr_rate * target_rate
+                    elif "SILVER" in name:
+                        # SI=F is per ounce in USD. Convert to 1kg in target currency.
+                        val = (latest_close / 31.1035) * 1000 * usdinr_rate * target_rate
+                        p_val = (prev_close / 31.1035) * 1000 * usdinr_rate * target_rate
+                    else:
+                        # Indices are usually in their local currency OR USD on yfinance
+                        # NIFTY/SENSEX on yfinance are already in INR
+                        val = latest_close * target_rate
+                        p_val = prev_close * target_rate
+
+                    delta = ((val - p_val) / p_val) * 100
+                    color = "#00C9A7" if delta >= 0 else "#FF6B6B"
+                    
+                    st.markdown(f"""
+                        <div class="metric-card" style="border-top: 4px solid {color};">
+                            <div class="metric-label">{name}</div>
+                            <div class="metric-value">{curr_sym}{val:,.2f}</div>
+                            <div style="color:{color}; font-weight:600; font-size:0.9rem;">
+                                {'▲' if delta >= 0 else '▼'} {abs(delta):.2f}%
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Sparkline
+                    temp_df = m_data["Close"].tail(10)
+                    st.line_chart(temp_df, height=80, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error loading {name}")
+
+        # Fuel Prices (Petrol & Diesel)
+        with cols[4 % 3]:
+            p_price = float(fuel_data["petrol"]) if fuel_data["petrol"] != "N/A" else 0
+            # Target currency conversion for fuel (fetched in INR)
+            p_val = p_price * target_rate
+            st.markdown(f"""
+                <div class="metric-card" style="border-top: 4px solid #6C63FF;">
+                    <div class="metric-label">PETROL (Mumbai)</div>
+                    <div class="metric-value">{curr_sym}{p_val:.2f}</div>
+                    <div style="color:#888; font-size:0.75rem;">Daily Updated</div>
+                </div>
+            """, unsafe_allow_html=True)
+            st.info("⛽ Petrol prices vary by city and are updated daily at 6 AM.")
+
+        with cols[5 % 3]:
+            d_price = float(fuel_data["diesel"]) if fuel_data["diesel"] != "N/A" else 0
+            d_val = d_price * target_rate
+            st.markdown(f"""
+                <div class="metric-card" style="border-top: 4px solid #FF6584;">
+                    <div class="metric-label">DIESEL (Mumbai)</div>
+                    <div class="metric-value">{curr_sym}{d_val:.2f}</div>
+                    <div style="color:#888; font-size:0.75rem;">Daily Updated</div>
+                </div>
+            """, unsafe_allow_html=True)
+            st.info("🚚 Diesel prices are subject to state taxes and local levies.")
 
     st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
     
     # Welcoming section
     st.markdown("""
         <div style="text-align: center; padding: 20px;">
-            <h2 style="color: #6C63FF;">Ready to Analyze?</h2>
-            <p>Select any asset from the sidebar to generate detailed ML predictions and forecasts.</p>
+            <h2 style="color: #6C63FF;">Ready for Deep Analysis?</h2>
+            <p>Enter a ticker in the sidebar and click <b>🚀 Run Analysis</b> to see ML-powered forecasting, 
+            technical indicators, and Buy/Sell/Hold suggestions.</p>
         </div>
     """, unsafe_allow_html=True)
 
     # Popular tickers guide
-    st.markdown("---")
-    st.markdown("#### 🌍 Popular Tickers to Try")
+    st.markdown("#### 🌍 Popular Market Tickers")
     guide_cols = st.columns(4)
     guides = [
-        ("🇮🇳 Indian (NSE)", ["RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS"]),
-        ("🇺🇸 US (NYSE/NASDAQ)", ["AAPL", "MSFT", "GOOGL", "AMZN"]),
-        ("🇪🇺 European", ["ASML.AS", "SAP.DE", "NESN.SW"]),
-        ("🪙 Crypto (via Yahoo)", ["BTC-USD", "ETH-USD", "SOL-USD"]),
+        ("🇮🇳 Indian Stocks", ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS"]),
+        ("🇺🇸 US Tech", ["AAPL", "MSFT", "NVDA", "TSLA"]),
+        ("🪙 Commodities", ["GC=F (Gold)", "SI=F (Silver)", "CL=F (Oil)"]),
+        ("💱 Forex", ["USDINR=X", "EURUSD=X", "GBPJPY=X"]),
     ]
     for col, (region, tickers) in zip(guide_cols, guides):
         with col:
             st.markdown(f"**{region}**")
             for t in tickers:
-                st.code(t, language=None)
+                st.code(t.split(" ")[0], language=None)
