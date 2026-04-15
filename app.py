@@ -216,24 +216,52 @@ st.markdown('<p class="sub-header">AI-powered stock analysis with real-time data
 # Sidebar — User Inputs
 # ──────────────────────────────────────────────────────────────────────────────
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Sidebar — User Inputs
+# ──────────────────────────────────────────────────────────────────────────────
+
 if 'run_dashboard' not in st.session_state:
     st.session_state.run_dashboard = False
 
+if 'current_city' not in st.session_state:
+    st.session_state.current_city = "Mumbai"
+
 with st.sidebar:
-    if st.button("🏠 Home", use_container_width=True):
+    st.markdown("### 🧭 Navigation")
+    if st.button("🏠 Home Dashboard", type="secondary" if st.session_state.run_dashboard else "primary", use_container_width=True):
         st.session_state.run_dashboard = False
         st.rerun()
 
     st.markdown("---")
-    st.markdown("### ⚙️ Configuration")
+    st.markdown("### ⚙️ Global Settings")
+    
+    # Currency Selection (Global)
+    target_currency = st.selectbox(
+        "💱 Display Currency",
+        options=["INR", "USD", "EUR", "GBP", "JPY"],
+        index=0,  # Default to INR
+        help="All prices across the app will be converted to this currency."
+    )
+    
+    # City Selection for Fuel (Only relevant for Home)
+    if not st.session_state.run_dashboard:
+        st.session_state.current_city = st.selectbox(
+            "📍 Fuel Price City",
+            options=["Mumbai", "Delhi", "Bangalore", "Chennai", "Hyderabad", "Kolkata", "Pune", "Ahmedabad", "Jaipur", "Lucknow"],
+            index=0
+        )
+
+    # Live refresh toggle
+    live_refresh = st.toggle("🔄 Auto-refresh Home", value=True, help="Automatically refresh market data every 60 seconds.")
+
     st.markdown("---")
+    st.markdown("### 🔍 Stock Analysis")
 
     # Load preset ticker suggestions
     try:
         with open("comprehensive_tickers.json", "r") as f:
             preset_tickers = json.load(f)
     except Exception:
-        # Fallback
         preset_tickers = {
             "NIFTY 50 (Index)": "^NSEI",
             "BSE SENSEX (Index)": "^BSESN",
@@ -244,26 +272,11 @@ with st.sidebar:
             "Crude Oil": "CL=F"
         }
 
-    # Currency Selection
-    st.markdown("**💱 Display Currency**")
-    target_currency = st.selectbox(
-        "Select Currency",
-        options=["INR", "USD", "EUR", "GBP", "JPY"],
-        index=0,  # Default to INR
-        help="All prices will be converted to this currency using live rates."
-    )
-
-    # Live refresh toggle
-    st.markdown("**🔄 Live Updates**")
-    live_refresh = st.toggle("Auto-refresh (Home)", value=True, help="Automatically refresh home page data every 60 seconds.")
-
     # Quick-select from presets
-    st.markdown("**Quick Select**")
     selected_preset = st.selectbox(
         "Choose a popular stock",
         options=["Custom"] + list(preset_tickers.keys()),
         index=0,
-        help="Select a popular stock or choose 'Custom' to enter your own ticker.",
     )
 
     # Ticker input
@@ -271,52 +284,26 @@ with st.sidebar:
         ticker_input = st.text_input(
             "📌 Stock Ticker Symbol",
             value=preset_tickers[selected_preset],
-            help="Yahoo Finance ticker (e.g., RELIANCE.NS for NSE, AAPL for NASDAQ)",
         )
     else:
         ticker_input = st.text_input(
             "📌 Stock Ticker Symbol",
             value="RELIANCE.NS",
-            help="Yahoo Finance ticker (e.g., RELIANCE.NS for NSE, AAPL for NASDAQ)",
         )
-
-    st.markdown("---")
 
     # Date range selection
     st.markdown("**📅 Date Range**")
     col_start, col_end = st.columns(2)
     with col_start:
-        start_date = st.date_input(
-            "Start",
-            value=datetime.now() - timedelta(days=365 * 2),  # 2 years ago
-            max_value=datetime.now(),
-        )
+        start_date = st.date_input("Start", value=datetime.now() - timedelta(days=365 * 2))
     with col_end:
-        end_date = st.date_input(
-            "End",
-            value=datetime.now(),
-            max_value=datetime.now(),
-        )
-
-    st.markdown("---")
+        end_date = st.date_input("End", value=datetime.now())
 
     # Forecast configuration
-    st.markdown("**🔮 Forecast Settings**")
-    forecast_days = st.selectbox(
-        "Forecast Period",
-        options=[7, 14, 30],
-        index=0,
-        help="Number of future trading days to predict.",
-    )
-
-    st.markdown("---")
+    forecast_days = st.selectbox("🔮 Forecast days", options=[7, 14, 30], index=0)
 
     # Run button
-    if st.button(
-        "🚀 Run Analysis",
-        type="primary",
-        use_container_width=True,
-    ):
+    if st.button("🚀 Run Deep Analysis", type="primary", use_container_width=True):
         st.session_state.run_dashboard = True
 
     st.markdown("---")
@@ -345,7 +332,7 @@ if st.session_state.get('run_dashboard', False):
         st.stop()
 
     # ── Step 1: Fetch Data ──────────────────────────────────────────────────
-    with st.spinner("📡 Fetching stock data from Yahoo Finance..."):
+    with st.spinner(f"📡 Fetching data for {ticker}..."):
         try:
             df = fetch_stock_data(ticker, str(start_date), str(end_date))
             stock_info = get_stock_info(ticker)
@@ -385,49 +372,36 @@ if st.session_state.get('run_dashboard', False):
         with col:
             st.markdown(
                 f'<div class="metric-card">'
-                f'<div class="metric-value">{value}</div>'
+                f'<div class="metric-value" style="font-size:1.4rem;">{value}</div>'
                 f'<div class="metric-label">{label}</div>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
 
     # ── Price Summary Metrics ───────────────────────────────────────────────
-    st.markdown("")
-
-    # Find the last row with a valid (non-NaN, non-zero) closing price
     valid_close = df[df["Close"].notna() & (df["Close"] > 0)]
     if len(valid_close) >= 2:
         latest = valid_close.iloc[-1]
         prev = valid_close.iloc[-2]
-    elif len(valid_close) == 1:
-        latest = valid_close.iloc[-1]
-        prev = latest
     else:
         latest = df.iloc[-1]
         prev = latest
 
-    # Safely compute price change
-    close_val = float(latest["Close"]) if pd.notna(latest["Close"]) else 0
-    prev_val = float(prev["Close"]) if pd.notna(prev["Close"]) else close_val
-    high_val = float(latest["High"]) if pd.notna(latest.get("High")) else close_val
-    low_val = float(latest["Low"]) if pd.notna(latest.get("Low")) else close_val
+    close_val = float(latest["Close"])
+    prev_val = float(prev["Close"])
     price_change = close_val - prev_val
     price_change_pct = (price_change / prev_val * 100) if prev_val != 0 else 0
 
     price_cols = st.columns(4)
     price_items = [
-        ("Current Price", f"{curr_sym}{close_val:.2f}", ""),
-        ("Day Change", f"{price_change:+.2f}", f"({price_change_pct:+.2f}%)"),
-        ("Day High", f"{curr_sym}{high_val:.2f}", ""),
-        ("Day Low", f"{curr_sym}{low_val:.2f}", ""),
+        ("Current Price", f"{curr_sym}{close_val:,.2f}", ""),
+        ("Day Change", f"{price_change:+,.2f}", f"({price_change_pct:+.2f}%)"),
+        ("Day High", f"{curr_sym}{latest['High']:,.2f}", ""),
+        ("Day Low", f"{curr_sym}{latest['Low']:,.2f}", ""),
     ]
     for col, (label, value, extra) in zip(price_cols, price_items):
         with col:
-            try:
-                is_positive = "+" in value or float(value.replace("+", "").replace(",", "")) >= 0
-            except ValueError:
-                is_positive = True
-            color = "#00C9A7" if is_positive else "#FF6B6B"
+            color = "#00C9A7" if "+" in value or float(value.replace("+", "").replace(",", "")) >= 0 else "#FF6B6B"
             st.markdown(
                 f'<div class="metric-card">'
                 f'<div class="metric-value" style="color:{color if label == "Day Change" else "#FAFAFA"}">{value} <span style="font-size:0.9rem;">{extra}</span></div>'
@@ -438,316 +412,150 @@ if st.session_state.get('run_dashboard', False):
 
     st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
 
-    # ── Step 2: Calculate Technical Indicators ──────────────────────────────
-    with st.spinner("📊 Calculating technical indicators..."):
-        df_with_indicators = add_all_indicators(df)
+    # ── Step 2: Indicators & Charts ──────────────────────────────
+    df_with_indicators = add_all_indicators(df)
+    tab_price, tab_indicators, tab_data = st.tabs(["📈 Price Chartsbolt", "📊 technical Indicators", "📋 Raw Data"])
 
-    # ── Step 3: Tabs for Charts ─────────────────────────────────────────────
-    tab_price, tab_indicators, tab_data = st.tabs([
-        "📈 Price Charts",
-        "📊 Technical Indicators",
-        "📋 Raw Data",
-    ])
-
-    # --- Tab: Price Charts ---
     with tab_price:
-        # Candlestick chart
-        st.plotly_chart(
-            plot_candlestick(df, f"{ticker} — Candlestick Chart"),
-            use_container_width=True,
-        )
-
-        # OHLC line chart
-        st.plotly_chart(
-            plot_ohlc_lines(df),
-            use_container_width=True,
-        )
-
-    # --- Tab: Technical Indicators ---
+        st.plotly_chart(plot_candlestick(df, f"{ticker} — Price Movement"), use_container_width=True)
     with tab_indicators:
-        st.plotly_chart(
-            plot_moving_averages(df_with_indicators),
-            use_container_width=True,
-        )
-
-        ind_col1, ind_col2 = st.columns(2)
-        with ind_col1:
-            st.plotly_chart(
-                plot_rsi(df_with_indicators),
-                use_container_width=True,
-            )
-        with ind_col2:
-            st.plotly_chart(
-                plot_macd(df_with_indicators),
-                use_container_width=True,
-            )
-
-        # Latest indicator values
-        st.markdown("#### 📐 Latest Indicator Values")
-        last_row = df_with_indicators.iloc[-1]
-        ind_metric_cols = st.columns(5)
-        ind_metrics = [
-            ("SMA-10", f"{last_row.get('SMA_10', 'N/A'):.2f}" if pd.notna(last_row.get("SMA_10")) else "N/A"),
-            ("SMA-20", f"{last_row.get('SMA_20', 'N/A'):.2f}" if pd.notna(last_row.get("SMA_20")) else "N/A"),
-            ("RSI (14)", f"{last_row.get('RSI', 'N/A'):.2f}" if pd.notna(last_row.get("RSI")) else "N/A"),
-            ("MACD", f"{last_row.get('MACD', 'N/A'):.4f}" if pd.notna(last_row.get("MACD")) else "N/A"),
-            ("MACD Signal", f"{last_row.get('MACD_Signal', 'N/A'):.4f}" if pd.notna(last_row.get("MACD_Signal")) else "N/A"),
-        ]
-        for col, (label, value) in zip(ind_metric_cols, ind_metrics):
-            with col:
-                st.markdown(
-                    f'<div class="metric-card">'
-                    f'<div class="metric-value" style="font-size:1.3rem;">{value}</div>'
-                    f'<div class="metric-label">{label}</div>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-
-    # --- Tab: Raw Data ---
+        st.plotly_chart(plot_moving_averages(df_with_indicators), use_container_width=True)
+        c1, c2 = st.columns(2)
+        with c1: st.plotly_chart(plot_rsi(df_with_indicators), use_container_width=True)
+        with c2: st.plotly_chart(plot_macd(df_with_indicators), use_container_width=True)
     with tab_data:
-        st.markdown("#### 📋 Historical Stock Data")
-        st.dataframe(
-            df_with_indicators.style.format("{:.2f}", subset=[
-                c for c in df_with_indicators.columns if c != "Volume"
-            ]).format("{:,.0f}", subset=["Volume"] if "Volume" in df_with_indicators.columns else []),
-            use_container_width=True,
-            height=400,
-        )
-        st.markdown(f"*Showing **{len(df_with_indicators)}** trading days of data.*")
+        st.dataframe(df_with_indicators, use_container_width=True)
 
     st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
 
-    # ── Step 4: ML Model Training ───────────────────────────────────────────
-    st.markdown("## 🤖 Machine Learning Prediction")
+    # ── Step 3: ML Prediction ───────────────────────────────────────────
+    st.markdown("## 🤖 Machine Learning Forecast")
+    df_features = prepare_features(df_with_indicators)
+    model_result = train_model(df_features)
 
-    # Check we have enough data for the model
-    min_required = 60  # Need at least 60 rows after feature engineering
-    if len(df_with_indicators) < min_required:
-        st.warning(
-            f"⚠️ Insufficient data for ML modeling. Need at least {min_required} trading days, "
-            f"but only have {len(df_with_indicators)}. Please select a wider date range."
-        )
-        st.stop()
-
-    with st.spinner("🧠 Preparing features and training the ML model..."):
-        # Prepare features from indicator-enriched data
-        df_features = prepare_features(df_with_indicators)
-
-        # Train the Random Forest model
-        model_result = train_model(df_features)
-
-    # ── Model Evaluation Metrics ────────────────────────────────────────────
-    st.markdown("### 📏 Model Evaluation Metrics")
-    eval_cols = st.columns(3)
-
-    eval_metrics = [
-        ("MAE (Mean Absolute Error)", f"{model_result['mae']:.4f}", "Lower is better — average prediction error"),
-        ("RMSE (Root Mean Squared Error)", f"{model_result['rmse']:.4f}", "Lower is better — penalizes large errors"),
-        ("R² Score", f"{model_result['r2']:.4f}", "Closer to 1.0 is better — explained variance"),
-    ]
-
-    for col, (label, value, desc) in zip(eval_cols, eval_metrics):
-        with col:
-            st.markdown(
-                f'<div class="metric-card">'
-                f'<div class="metric-value" style="color:#6C63FF;">{value}</div>'
-                f'<div class="metric-label">{label}</div>'
-                f'<div style="font-size:0.75rem; color:#666; margin-top:8px;">{desc}</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-
-    # ── Actual vs Predicted Chart ───────────────────────────────────────────
-    st.markdown("### 🎯 Actual vs Predicted Prices (Test Set)")
-
-    # Get the dates for the test set
-    test_size = len(model_result["y_test"])
-    test_dates = df_features.index[-test_size:]
-
-    st.plotly_chart(
-        plot_predictions(model_result["y_test"], model_result["y_pred"], test_dates),
-        use_container_width=True,
-    )
-
-    # ── Feature Importance ──────────────────────────────────────────────────
-    importance_df = get_feature_importance(model_result)
-
-    with st.expander("🔍 Feature Importance — What drives the predictions?", expanded=False):
-        st.plotly_chart(
-            plot_feature_importance(importance_df),
-            use_container_width=True,
-        )
-
-    st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
-
-    # ── Step 5: Future Forecast ─────────────────────────────────────────────
-    st.markdown(f"## 🔮 {forecast_days}-Day Price Forecast")
-
-    with st.spinner(f"Generating {forecast_days}-day forecast..."):
-        forecast_df = forecast_future(df_features, model_result, days=forecast_days)
-
-    st.plotly_chart(
-        plot_forecast(df, forecast_df, f"{forecast_days}-Day"),
-        use_container_width=True,
-    )
-
-    # Forecast table
-    with st.expander("📋 Forecast Details", expanded=True):
-        display_forecast = forecast_df.copy()
-        display_forecast.index = display_forecast.index.strftime("%Y-%m-%d (%A)")
-        display_forecast.columns = [f"Predicted Close ({target_currency})"]
-        st.dataframe(
-            display_forecast.style.format("{:.2f}"),
-            use_container_width=True,
-        )
-
-    st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
-
-    # ── Step 6: Buy / Sell / Hold Suggestion ────────────────────────────────
-    st.markdown("## 💡 Buy / Sell / Hold Suggestion")
+    forecast_df = forecast_future(df_features, model_result, days=forecast_days)
+    st.plotly_chart(plot_forecast(df, forecast_df, f"{forecast_days}-Day"), use_container_width=True)
 
     suggestion = generate_suggestion(df_with_indicators, forecast_df)
-
-    st.markdown(
-        f'<div class="suggestion-card">'
-        f'<div class="suggestion-title">{suggestion["suggestion"]}</div>'
-        f'<div class="suggestion-confidence">Confidence: {suggestion["confidence"]:.0f}%</div>'
-        + "".join(
-            f'<div class="reason-item">• {reason}</div>' for reason in suggestion["reasons"]
-        )
-        + "</div>",
-        unsafe_allow_html=True,
-    )
-
-    # ── Disclaimer ──────────────────────────────────────────────────────────
-    st.markdown("")
-    st.info(
-        "⚠️ **Disclaimer:** This is a student project for educational purposes only. "
-        "The predictions and suggestions are based on a simple ML model and should NOT "
-        "be used for actual financial decisions. Always consult a certified financial "
-        "advisor before making investment decisions."
-    )
+    st.markdown(f'<div class="suggestion-card"><div class="suggestion-title">{suggestion["suggestion"]}</div>'
+                f'<div class="suggestion-confidence">Confidence: {suggestion["confidence"]:.0f}%</div>'
+                + "".join(f'<div class="reason-item">• {reason}</div>' for reason in suggestion["reasons"]) + "</div>", unsafe_allow_html=True)
 
 else:
-    # ── Enhanced Market Overview Landing Page ───────────────────────────────
+    # ── HOME PAGE: LIVE MARKET OVERVIEW ───────────────────────────────
     
-    # Auto-refresh logic (every 60s if toggled)
     if live_refresh:
         st_autorefresh(interval=60000, key="market_refresh")
 
     st.markdown('<h2 style="text-align:center; color:#6C63FF; margin-bottom:30px;">🌍 Live Market Overview</h2>', unsafe_allow_html=True)
     
-    # Fetch data for major markers
-    with st.spinner("📡 Refreshing market data..."):
-        # We'll use a standardized city for fuel - user can change but we'll default to Mumbai/Delhi
-        fuel_data = get_fuel_prices("Mumbai")
-        
-        # Major tickers for indices and commodities
-        markers = {
-            "NIFTY 50": "^NSEI",
-            "SENSEX": "^BSESN",
-            "GOLD (10g)": "GC=F",
-            "SILVER (1kg)": "SI=F",
-        }
-        
-        # Get live USDINR rate for conversions
+    with st.spinner("📡 Syncing with global markets..."):
+        fuel_data = get_fuel_prices(st.session_state.current_city)
         usdinr_rate = get_exchange_rate("USD", "INR")
         curr_sym = CURRENCY_SYMBOLS.get(target_currency, "₹")
         target_rate = get_exchange_rate("INR", target_currency) if target_currency != "INR" else 1.0
 
-        cols = st.columns(3)
+        # Markers layout
+        m_col1, m_col2, m_col3 = st.columns(3)
         
-        # Helper to process each marker
-        for i, (name, t_code) in enumerate(markers.items()):
-            with cols[i % 3]:
+        # 1. INDICES Section
+        with m_col1:
+            st.markdown("#### 📈 Major Indices")
+            indices = {"NIFTY 50": "^NSEI", "SENSEX": "^BSESN"}
+            for name, code in indices.items():
                 try:
-                    m_data = fetch_stock_data(t_code, (datetime.now() - timedelta(days=15)).strftime('%Y-%m-%d'), datetime.now().strftime('%Y-%m-%d'))
-                    latest_close = m_data["Close"].iloc[-1]
-                    prev_close = m_data["Close"].iloc[-2]
+                    m_data = fetch_stock_data(code, (datetime.now() - timedelta(days=20)).strftime('%Y-%m-%d'), datetime.now().strftime('%Y-%m-%d'))
+                    val = m_data["Close"].iloc[-1] * target_rate
+                    delta = ((m_data["Close"].iloc[-1] - m_data["Close"].iloc[-2]) / m_data["Close"].iloc[-2]) * 100
+                    color = "#00C9A7" if delta >= 0 else "#FF6B6B"
                     
-                    # Special handling for Gold/Silver units and currency
+                    st.markdown(f"""
+                        <div class="metric-card" style="border-top: 4px solid {color}; padding: 15px; margin-bottom: 15px;">
+                            <div class="metric-label" style="font-size:0.8rem;">{name}</div>
+                            <div class="metric-value" style="font-size:1.5rem;">{curr_sym}{val:,.2f}</div>
+                            <div style="color:{color}; font-weight:600; font-size:0.8rem;">
+                                {'▲' if delta >= 0 else '▼'} {abs(delta):.2f}%
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    from utils import plot_mini_sparkline
+                    st.plotly_chart(plot_mini_sparkline(m_data["Close"].tail(15), color), use_container_width=True, config={'displayModeBar': False})
+                except: st.error(f"Failed: {name}")
+
+        # 2. COMMODITIES Section
+        with m_col2:
+            st.markdown("#### 🪙 Commodities")
+            commodities = {"GOLD (10g)": "GC=F", "SILVER (1kg)": "SI=F"}
+            for name, code in commodities.items():
+                try:
+                    m_data = fetch_stock_data(code, (datetime.now() - timedelta(days=20)).strftime('%Y-%m-%d'), datetime.now().strftime('%Y-%m-%d'))
+                    raw_val = m_data["Close"].iloc[-1]
+                    raw_prev = m_data["Close"].iloc[-2]
+                    
                     if "GOLD" in name:
-                        # GC=F is per ounce in USD. Convert to 10g in target currency.
-                        # 1 ounce = 31.1035g
-                        val = (latest_close / 31.1035) * 10 * usdinr_rate * target_rate
-                        p_val = (prev_close / 31.1035) * 10 * usdinr_rate * target_rate
-                    elif "SILVER" in name:
-                        # SI=F is per ounce in USD. Convert to 1kg in target currency.
-                        val = (latest_close / 31.1035) * 1000 * usdinr_rate * target_rate
-                        p_val = (prev_close / 31.1035) * 1000 * usdinr_rate * target_rate
+                        val = (raw_val / 31.1035) * 10 * usdinr_rate * target_rate
+                        p_val = (raw_prev / 31.1035) * 10 * usdinr_rate * target_rate
                     else:
-                        # Indices are usually in their local currency OR USD on yfinance
-                        # NIFTY/SENSEX on yfinance are already in INR
-                        val = latest_close * target_rate
-                        p_val = prev_close * target_rate
+                        val = (raw_val / 31.1035) * 1000 * usdinr_rate * target_rate
+                        p_val = (raw_prev / 31.1035) * 1000 * usdinr_rate * target_rate
 
                     delta = ((val - p_val) / p_val) * 100
                     color = "#00C9A7" if delta >= 0 else "#FF6B6B"
                     
                     st.markdown(f"""
-                        <div class="metric-card" style="border-top: 4px solid {color};">
-                            <div class="metric-label">{name}</div>
-                            <div class="metric-value">{curr_sym}{val:,.2f}</div>
-                            <div style="color:{color}; font-weight:600; font-size:0.9rem;">
+                        <div class="metric-card" style="border-top: 4px solid {color}; padding: 15px; margin-bottom: 15px;">
+                            <div class="metric-label" style="font-size:0.8rem;">{name}</div>
+                            <div class="metric-value" style="font-size:1.5rem;">{curr_sym}{val:,.2f}</div>
+                            <div style="color:{color}; font-weight:600; font-size:0.8rem;">
                                 {'▲' if delta >= 0 else '▼'} {abs(delta):.2f}%
                             </div>
                         </div>
                     """, unsafe_allow_html=True)
-                    
-                    # Sparkline
-                    temp_df = m_data["Close"].tail(10)
-                    st.line_chart(temp_df, height=80, use_container_width=True)
-                except Exception as e:
-                    st.error(f"Error loading {name}")
+                    st.plotly_chart(plot_mini_sparkline(m_data["Close"].tail(15), color), use_container_width=True, config={'displayModeBar': False})
+                except: st.error(f"Failed: {name}")
 
-        # Fuel Prices (Petrol & Diesel)
-        with cols[4 % 3]:
-            p_price = float(fuel_data["petrol"]) if fuel_data["petrol"] != "N/A" else 0
-            # Target currency conversion for fuel (fetched in INR)
-            p_val = p_price * target_rate
+        # 3. FUEL & FOREX Section
+        with m_col3:
+            st.markdown("#### ⛽ Fuel & Forex")
+            # Petrol
+            p_val = float(fuel_data["petrol"]) * target_rate
             st.markdown(f"""
-                <div class="metric-card" style="border-top: 4px solid #6C63FF;">
-                    <div class="metric-label">PETROL (Mumbai)</div>
-                    <div class="metric-value">{curr_sym}{p_val:.2f}</div>
-                    <div style="color:#888; font-size:0.75rem;">Daily Updated</div>
+                <div class="metric-card" style="border-top: 4px solid #6C63FF; padding: 15px; margin-bottom: 10px;">
+                    <div class="metric-label" style="font-size:0.8rem;">PETROL ({st.session_state.current_city})</div>
+                    <div class="metric-value" style="font-size:1.5rem;">{curr_sym}{p_val:.2f}</div>
                 </div>
             """, unsafe_allow_html=True)
-            st.info("⛽ Petrol prices vary by city and are updated daily at 6 AM.")
-
-        with cols[5 % 3]:
-            d_price = float(fuel_data["diesel"]) if fuel_data["diesel"] != "N/A" else 0
-            d_val = d_price * target_rate
+            # Diesel
+            d_val = float(fuel_data["diesel"]) * target_rate
             st.markdown(f"""
-                <div class="metric-card" style="border-top: 4px solid #FF6584;">
-                    <div class="metric-label">DIESEL (Mumbai)</div>
-                    <div class="metric-value">{curr_sym}{d_val:.2f}</div>
-                    <div style="color:#888; font-size:0.75rem;">Daily Updated</div>
+                <div class="metric-card" style="border-top: 4px solid #FF6584; padding: 15px; margin-bottom: 10px;">
+                    <div class="metric-label" style="font-size:0.8rem;">DIESEL ({st.session_state.current_city})</div>
+                    <div class="metric-value" style="font-size:1.5rem;">{curr_sym}{d_val:.2f}</div>
                 </div>
             """, unsafe_allow_html=True)
-            st.info("🚚 Diesel prices are subject to state taxes and local levies.")
+            
+            # USD/INR Rate (For context)
+            st.markdown(f"""
+                <div class="metric-card" style="border-top: 4px solid #FFD93D; padding: 15px;">
+                    <div class="metric-label" style="font-size:0.8rem;">USD / INR</div>
+                    <div class="metric-value" style="font-size:1.5rem;">₹{usdinr_rate:.2f}</div>
+                </div>
+            """, unsafe_allow_html=True)
 
     st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
-    
-    # Welcoming section
     st.markdown("""
-        <div style="text-align: center; padding: 20px;">
-            <h2 style="color: #6C63FF;">Ready for Deep Analysis?</h2>
-            <p>Enter a ticker in the sidebar and click <b>🚀 Run Analysis</b> to see ML-powered forecasting, 
-            technical indicators, and Buy/Sell/Hold suggestions.</p>
+        <div style="text-align: center; background: rgba(108, 99, 255, 0.05); padding: 30px; border-radius: 20px;">
+            <h3 style="color: #6C63FF; margin-bottom: 10px;">Ready for Deep Analysis?</h3>
+            <p style="color: #888; max-width: 600px; margin: 0 auto 20px auto;">
+                Select a stock from the sidebar or enter any Yahoo Finance ticker to get started with 
+                our AI-powered prediction model and technical analysis tools.
+            </p>
         </div>
     """, unsafe_allow_html=True)
 
-    # Popular tickers guide
-    st.markdown("#### 🌍 Popular Market Tickers")
-    guide_cols = st.columns(4)
-    guides = [
-        ("🇮🇳 Indian Stocks", ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS"]),
-        ("🇺🇸 US Tech", ["AAPL", "MSFT", "NVDA", "TSLA"]),
-        ("🪙 Commodities", ["GC=F (Gold)", "SI=F (Silver)", "CL=F (Oil)"]),
-        ("💱 Forex", ["USDINR=X", "EURUSD=X", "GBPJPY=X"]),
-    ]
-    for col, (region, tickers) in zip(guide_cols, guides):
-        with col:
-            st.markdown(f"**{region}**")
-            for t in tickers:
-                st.code(t.split(" ")[0], language=None)
+    # Info grid
+    g1, g2, g3, g4 = st.columns(4)
+    with g1: st.info("**NSE Stocks**<br>Add `.NS` suffix<br>Ex: `TCS.NS`", icon="🇮🇳")
+    with g2: st.info("**BSE Stocks**<br>Add `.BO` suffix<br>Ex: `RELIANCE.BO`", icon="🏛️")
+    with g3: st.info("**US Stocks**<br>Direct ticker<br>Ex: `NVDA`", icon="🇺🇸")
+    with g4: st.info("**Forex**<br>Use `=X` suffix<br>Ex: `EURUSD=X`", icon="💱")

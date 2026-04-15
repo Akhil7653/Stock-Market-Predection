@@ -468,6 +468,40 @@ def plot_feature_importance(importance_df: pd.DataFrame, top_n: int = 10) -> go.
 
 
 # ---------------------------------------------------------------------------
+# Sparkline (for Dashboard Cards)
+# ---------------------------------------------------------------------------
+
+def plot_mini_sparkline(data: pd.Series, color: str = COLORS["primary"]) -> go.Figure:
+    """
+    Create a minimal sparkline for display in small cards.
+    """
+    fig = go.Figure()
+    
+    fig.add_trace(go.Scatter(
+        x=data.index,
+        y=data.values,
+        mode="lines",
+        line=dict(color=color, width=2),
+        fill='tozeroy',
+        fillcolor=color.replace("rgb", "rgba").replace(")", ", 0.1)"), # Subtle fill
+        hoverinfo='none'
+    ))
+    
+    fig.update_layout(
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=40,
+        showlegend=False,
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        hovermode=False
+    )
+    
+    return fig
+
+
+# ---------------------------------------------------------------------------
 # Formatting Helpers
 # ---------------------------------------------------------------------------
 
@@ -483,12 +517,19 @@ def format_large_number(num, symbol="") -> str:
     except (ValueError, TypeError):
         return str(num)
 
+    # Use Indian numbering system if symbol is ₹
+    is_inr = symbol == "₹"
+
     if abs(num) >= 1e12:
         return f"{symbol}{num / 1e12:.2f}T"
     elif abs(num) >= 1e9:
         return f"{symbol}{num / 1e9:.2f}B"
+    elif abs(num) >= 1e7 and is_inr:
+        return f"{symbol}{num / 1e7:.2f}Cr"
     elif abs(num) >= 1e6:
         return f"{symbol}{num / 1e6:.2f}M"
+    elif abs(num) >= 1e5 and is_inr:
+        return f"{symbol}{num / 1e5:.2f}L"
     elif abs(num) >= 1e3:
         return f"{symbol}{num / 1e3:.2f}K"
     else:

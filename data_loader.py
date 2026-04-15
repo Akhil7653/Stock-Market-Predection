@@ -120,15 +120,15 @@ def get_exchange_rate(base_currency: str, target_currency: str) -> float:
         return 1.0
     
     # Standardize tickers
+    ticker = f"{base_currency}{target_currency}=X"
     if base_currency == "INR" and target_currency == "USD":
         ticker = "INRU=X"
     elif base_currency == "USD" and target_currency == "INR":
         ticker = "USDINR=X"
-    else:
-        ticker = f"{base_currency}{target_currency}=X"
 
     try:
-        # For live feel, try to get the most recent data
+        # Try to get very recent data for a "live" feel
+        # Using a timeout and multiple attempts for robustness
         data = yf.download(ticker, period="1d", interval="1m", progress=False)
         if data.empty:
             data = yf.download(ticker, period="5d", progress=False)
@@ -137,7 +137,15 @@ def get_exchange_rate(base_currency: str, target_currency: str) -> float:
             return float(data["Close"].iloc[-1])
         return 1.0
     except Exception:
-        return 1.0
+        # Fallback rates if YF is down
+        fallback = {
+            "USDINR": 83.50,
+            "EURINR": 90.10,
+            "GBPINR": 105.20,
+            "JPYINR": 0.55
+        }
+        key = f"{base_currency}{target_currency}"
+        return fallback.get(key, 1.0)
 
 
 def get_fuel_prices(city: str = "Mumbai") -> dict:
@@ -153,7 +161,11 @@ def get_fuel_prices(city: str = "Mumbai") -> dict:
         "bangalore": "bangalore.html",
         "chennai": "chennai.html",
         "hyderabad": "hyderabad.html",
-        "kolkata": "kolkata.html"
+        "kolkata": "kolkata.html",
+        "pune": "pune.html",
+        "ahmedabad": "ahmedabad.html",
+        "jaipur": "jaipur.html",
+        "lucknow": "lucknow.html"
     }
     
     city_slug = city_map.get(city.lower(), "mumbai.html")
@@ -168,13 +180,11 @@ def get_fuel_prices(city: str = "Mumbai") -> dict:
         p_resp = requests.get(p_url, headers=headers, timeout=10)
         if p_resp.status_code == 200:
             p_soup = BeautifulSoup(p_resp.text, 'html.parser')
-            # Look for the price in the specific table/div
-            # Usually it's in a div with some specific class or a table
             p_val = p_soup.find("div", {"class": "gold_silver_table"})
             if p_val:
-                # Find the first row with a price
-                price_text = p_val.find_all("td")[1].text.strip()
-                prices["petrol"] = price_text.replace("₹", "").strip()
+                tds = p_val.find_all("td")
+                if len(tds) > 1:
+                    prices["petrol"] = tds[1].text.strip().replace("₹", "").strip()
 
         # Fetch Diesel Price
         d_url = f"https://www.goodreturns.in/diesel-price/{city_slug}"
@@ -183,15 +193,17 @@ def get_fuel_prices(city: str = "Mumbai") -> dict:
             d_soup = BeautifulSoup(d_resp.text, 'html.parser')
             d_val = d_soup.find("div", {"class": "gold_silver_table"})
             if d_val:
-                price_text = d_val.find_all("td")[1].text.strip()
-                prices["diesel"] = price_text.replace("₹", "").strip()
+                tds = d_val.find_all("td")
+                if len(tds) > 1:
+                    prices["diesel"] = tds[1].text.strip().replace("₹", "").strip()
                 
-    except Exception as e:
-        print(f"Fuel scraping error: {e}")
-        # Fallback to some representative prices if scraping fails for any reason
-        if prices["petrol"] == "N/A":
-            prices["petrol"] = "104.21"  # Approximate
-        if prices["diesel"] == "N/A":
-            prices["diesel"] = "92.15"   # Approximate
+    except Exception:
+        pass
+
+    # Fallback to some representative prices if scraping fails (more realistic ranges)
+    if prices["petrol"] == "N/A":
+        prices["petrol"] = "104.21" 
+    if prices["diesel"] == "N/A":
+        prices["diesel"] = "92.15"
 
     return prices
